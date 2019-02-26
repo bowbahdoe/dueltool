@@ -1,41 +1,53 @@
 module Main exposing (main)
 
 import Browser
+import Dict exposing (Dict)
+import History exposing (History)
 import Html exposing (Html, button, div, text)
 import Html.Events exposing (onClick)
 import List exposing (append, drop, head, take)
-import Maybe exposing (map)
+import Maybe
+import Number.Bounded exposing (Bounded)
+
+
+type LifePoints
+    = LifePoints (Bounded Int)
+
+
+infinity : Int
+infinity =
+    round (1 / 0)
+
+
+lpFromInt : Int -> LifePoints
+lpFromInt intLife =
+    LifePoints <|
+        Number.Bounded.set intLife (Number.Bounded.between 0 infinity)
+
+
+lpChangeBy : Int -> LifePoints -> LifePoints
+lpChangeBy by (LifePoints lp) =
+    LifePoints <| Number.Bounded.inc by lp
+
+
+lpValue : LifePoints -> Int
+lpValue (LifePoints lp) =
+    Number.Bounded.value lp
+
+
+lpToString : LifePoints -> String
+lpToString =
+    lpValue >> String.fromInt
 
 
 type alias Player =
-    { life : List Int
+    { lifeHistory : History LifePoints
     }
-
-
-setLife : Player -> Int -> Player
-setLife player life =
-    { life = life :: player.life
-    }
-
-
-getLife : List Player -> Int -> Maybe Int
-getLife players playerNum =
-    drop playerNum players
-        |> head
-        |> Maybe.andThen
-            (\player ->
-                case player.life of
-                    life :: _ ->
-                        Just life
-
-                    [] ->
-                        Nothing
-            )
 
 
 type alias Model =
     { turn : Int
-    , players : List Player
+    , players : Dict Int Player
     }
 
 
@@ -43,62 +55,92 @@ init : Int -> Model
 init numPlayers =
     { turn = 0
     , players =
-        List.repeat numPlayers
-            { life = [ 8000 ]
-            }
+        { lifeHistory = History.new (lpFromInt 8000) }
+            |> List.repeat numPlayers
+            |> List.indexedMap Tuple.pair
+            |> Dict.fromList
     }
 
 
-type
-    Msg
-    -- (Player, Life)
-    = SetLife ( Int, Maybe Int )
+numberOfPlayers : Model -> Int
+numberOfPlayers { players } =
+    Dict.size players
+
+
+getLife : Int -> Model -> Maybe Int
+getLife playerNumber { players } =
+    case Dict.get playerNumber players of
+        Just { lifeHistory } ->
+            Just (lpValue (History.current lifeHistory))
+
+        Nothing ->
+            Nothing
+
+
+changeLifeBy : Int -> Player -> Player
+changeLifeBy lifeChangeAmount player =
+    let
+        { lifeHistory } =
+            player
+
+        curLife =
+            History.current lifeHistory
+    in
+    { player | lifeHistory = History.to (lpChangeBy lifeChangeAmount curLife) lifeHistory }
+
+
+updatePlayer : Int -> (Player -> Player) -> Model -> Model
+updatePlayer playerNumber playerTransform model =
+    let
+        newPlayersDict =
+            Dict.update playerNumber (Maybe.map playerTransform) model.players
+    in
+    { model | players = newPlayersDict }
+
+
+type Msg
+    = ChangeLife { playerNum : Int, by : Int }
     | Reset
 
 
 update : Msg -> Model -> Model
 update msg model =
     case msg of
-        SetLife ( _, Nothing ) ->
-            model
-
-        SetLife ( player, Just newLife ) ->
-            case head <| drop player model.players of
-                Nothing ->
-                    model
-
-                Just aPlayer ->
-                    { turn = model.turn + 1
-                    , players =
-                        append
-                            (take player model.players)
-                            (setLife aPlayer newLife :: drop (player + 1) model.players)
-                    }
+        ChangeLife { playerNum, by } ->
+            updatePlayer playerNum (changeLifeBy by) model
 
         Reset ->
-            init (List.length model.players)
+            init (numberOfPlayers model)
 
 
 view : Model -> Html Msg
 view model =
     div []
         [ div []
-            [ text (Debug.toString (getLife model.players 0))
+            [ text
+                (getLife 0 model
+                    |> Maybe.withDefault 0
+                    |> String.fromInt
+                )
             , div [] []
             , button
-                [ onClick <| SetLife ( 0, map (\x -> x + 100) (getLife model.players 0) ) ]
+                [ onClick <| ChangeLife { playerNum = 0, by = 100 } ]
                 [ text "Player 1 + 100" ]
             , button
-                [ onClick <| SetLife ( 0, map (\x -> x - 100) (getLife model.players 0) ) ]
+                [ onClick <| ChangeLife { playerNum = 0, by = -100 } ]
                 [ text "Player 1 - 100" ]
             , div [] []
-            , text (Debug.toString (getLife model.players 1))
+            , text
+                (getLife 1 model
+                    |> Maybe.withDefault 0
+                    |> String.fromInt
+                )
             , div [] []
             , button
-                [ onClick <| SetLife ( 1, map (\x -> x + 100) (getLife model.players 1) ) ]
+                [ onClick <| ChangeLife { playerNum = 1, by = 100 } ]
                 [ text "Player 2 + 100" ]
             , button
-                [ onClick <| SetLife ( 1, map (\x -> x - 100) (getLife model.players 1) ) ]
+                [ onClick <| ChangeLife { playerNum = 1, by = -100 } ]
                 [ text "Player 2 - 100" ]
             ]
         , div [] []
