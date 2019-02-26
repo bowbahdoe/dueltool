@@ -1,43 +1,14 @@
 module Main exposing (main)
 
 import Browser
+import Debug
 import Dict exposing (Dict)
+import Element exposing (Element, centerX, column, el, fill, padding, row, spacing, text, width)
+import Element.Input exposing (button)
 import History exposing (History)
-import Html exposing (Html, button, div, text)
-import Html.Events exposing (onClick)
-import List exposing (append, drop, head, take)
+import Html exposing (Html)
+import LifePoints exposing (LifePoints)
 import Maybe
-import Number.Bounded exposing (Bounded)
-
-
-type LifePoints
-    = LifePoints (Bounded Int)
-
-
-infinity : Int
-infinity =
-    round (1 / 0)
-
-
-lpFromInt : Int -> LifePoints
-lpFromInt intLife =
-    LifePoints <|
-        Number.Bounded.set intLife (Number.Bounded.between 0 infinity)
-
-
-lpChangeBy : Int -> LifePoints -> LifePoints
-lpChangeBy by (LifePoints lp) =
-    LifePoints <| Number.Bounded.inc by lp
-
-
-lpValue : LifePoints -> Int
-lpValue (LifePoints lp) =
-    Number.Bounded.value lp
-
-
-lpToString : LifePoints -> String
-lpToString =
-    lpValue >> String.fromInt
 
 
 type alias Player =
@@ -46,16 +17,14 @@ type alias Player =
 
 
 type alias Model =
-    { turn : Int
-    , players : Dict Int Player
+    { players : Dict Int Player
     }
 
 
 init : Int -> Model
 init numPlayers =
-    { turn = 0
-    , players =
-        { lifeHistory = History.new (lpFromInt 8000) }
+    { players =
+        { lifeHistory = History.new (LifePoints.fromInt 8000) }
             |> List.repeat numPlayers
             |> List.indexedMap Tuple.pair
             |> Dict.fromList
@@ -67,11 +36,11 @@ numberOfPlayers { players } =
     Dict.size players
 
 
-getLife : Int -> Model -> Maybe Int
-getLife playerNumber { players } =
-    case Dict.get playerNumber players of
+getLife : PlayerId -> Model -> Maybe Int
+getLife playerId { players } =
+    case Dict.get playerId players of
         Just { lifeHistory } ->
-            Just (lpValue (History.current lifeHistory))
+            Just (LifePoints.value (History.current lifeHistory))
 
         Nothing ->
             Nothing
@@ -86,65 +55,107 @@ changeLifeBy lifeChangeAmount player =
         curLife =
             History.current lifeHistory
     in
-    { player | lifeHistory = History.to (lpChangeBy lifeChangeAmount curLife) lifeHistory }
+    { player | lifeHistory = History.to (LifePoints.changeBy lifeChangeAmount curLife) lifeHistory }
 
 
 updatePlayer : Int -> (Player -> Player) -> Model -> Model
-updatePlayer playerNumber playerTransform model =
+updatePlayer playerIdber playerTransform model =
     let
         newPlayersDict =
-            Dict.update playerNumber (Maybe.map playerTransform) model.players
+            Dict.update playerIdber (Maybe.map playerTransform) model.players
     in
     { model | players = newPlayersDict }
 
 
 type Msg
-    = ChangeLife { playerNum : Int, by : Int }
+    = ChangeLife { playerId : PlayerId, by : Int }
     | Reset
 
 
 update : Msg -> Model -> Model
 update msg model =
     case msg of
-        ChangeLife { playerNum, by } ->
-            updatePlayer playerNum (changeLifeBy by) model
+        ChangeLife { playerId, by } ->
+            updatePlayer playerId (changeLifeBy by) model
 
         Reset ->
             init (numberOfPlayers model)
 
 
+type alias PlayerId =
+    Int
+
+
+lifeButton : PlayerId -> Element Msg
+lifeButton playerId =
+    let
+        changeLifeMsg : Int -> Msg
+        changeLifeMsg changeAmt =
+            ChangeLife { playerId = playerId, by = changeAmt }
+    in
+    row [ width <| fill ]
+        [ column [ width <| fill ]
+            [ button [ padding 10, centerX ]
+                { onPress = Just (changeLifeMsg 1000)
+                , label = text "+1000"
+                }
+            , button [ padding 10, centerX ]
+                { onPress = Just (changeLifeMsg 500)
+                , label = text "+500"
+                }
+            , button [ padding 10, centerX ]
+                { onPress = Just (changeLifeMsg 100)
+                , label = text "+100"
+                }
+            , button [ padding 10, centerX ]
+                { onPress = Just (changeLifeMsg 50)
+                , label = text "+50"
+                }
+            ]
+        , column [ width <| fill ]
+            [ button [ padding 10, centerX ]
+                { onPress = Just (changeLifeMsg -1000)
+                , label = text "-1000"
+                }
+            , button [ padding 10, centerX ]
+                { onPress = Just (changeLifeMsg -500)
+                , label = text "-500"
+                }
+            , button [ padding 10, centerX ]
+                { onPress = Just (changeLifeMsg -100)
+                , label = text "-100"
+                }
+            , button [ padding 10, centerX ]
+                { onPress = Just (changeLifeMsg -50)
+                , label = text "-50"
+                }
+            ]
+        ]
+
+
+lifeDisplay : Model -> PlayerId -> Element Msg
+lifeDisplay model playerId =
+    case getLife playerId model of
+        Just lp ->
+            text (String.fromInt lp)
+
+        Nothing ->
+            text ""
+
+
 view : Model -> Html Msg
 view model =
-    div []
-        [ div []
-            [ text
-                (getLife 0 model
-                    |> Maybe.withDefault 0
-                    |> String.fromInt
-                )
-            , div [] []
-            , button
-                [ onClick <| ChangeLife { playerNum = 0, by = 100 } ]
-                [ text "Player 1 + 100" ]
-            , button
-                [ onClick <| ChangeLife { playerNum = 0, by = -100 } ]
-                [ text "Player 1 - 100" ]
-            , div [] []
-            , text
-                (getLife 1 model
-                    |> Maybe.withDefault 0
-                    |> String.fromInt
-                )
-            , div [] []
-            , button
-                [ onClick <| ChangeLife { playerNum = 1, by = 100 } ]
-                [ text "Player 2 + 100" ]
-            , button
-                [ onClick <| ChangeLife { playerNum = 1, by = -100 } ]
-                [ text "Player 2 - 100" ]
+    Element.layout [] <|
+        row [ fill |> width, Element.explain Debug.todo ]
+            [ column [ fill |> width ]
+                [ el [ centerX ] (lifeDisplay model 0)
+                , lifeButton 0
+                ]
+            , column [ fill |> width ]
+                [ el [ centerX ] (lifeDisplay model 1)
+                , lifeButton 1
+                ]
             ]
-        , div [] []
-        ]
 
 
 main =
