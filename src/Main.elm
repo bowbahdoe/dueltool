@@ -69,6 +69,19 @@ updatePlayer playerId playerTransform duel =
     { duel | players = newPlayersDict }
 
 
+{-| In YuGiOh life point changes that aren't 50 + some multiple of 100 are
+almost non-existent. As a shortcut for players we can scale up a small
+number to it's closest multiple of 100.
+-}
+scaleUpSmallLifeChanges : Int -> Int
+scaleUpSmallLifeChanges n =
+    if n < 100 && n /= 50 then
+        n * 100
+
+    else
+        n
+
+
 submitLifePointChange : Model -> Model
 submitLifePointChange model =
     let
@@ -79,7 +92,7 @@ submitLifePointChange model =
             case InputState.lifeChangeIndicated model.inputState of
                 Just { change, forPlayer } ->
                     ( inputState |> InputState.removePlayerSelection |> InputState.clearChangeInput
-                    , updatePlayer forPlayer (Player.changeLifeBy change) duel
+                    , updatePlayer forPlayer (Player.changeLifeBy (scaleUpSmallLifeChanges change)) duel
                     )
 
                 Nothing ->
