@@ -40,6 +40,7 @@ type NumericInputButton
     | TRIPLE_ZERO
     | PLUS
     | MINUS
+    | BACK
 
 
 init : InputState
@@ -68,7 +69,7 @@ removePlayerSelection inputState =
 
 clearChangeInput : InputState -> InputState
 clearChangeInput inputState =
-    { inputState | changeAmountEntered = Nothing }
+    { inputState | changeAmountEntered = Nothing, sign = Positive }
 
 
 lifeChangeIndicated : InputState -> Maybe { change : Int, forPlayer : PlayerId }
@@ -144,6 +145,23 @@ scaleBy n inputState =
     }
 
 
+backButtonPressed : InputState -> InputState
+backButtonPressed inputState =
+    { inputState
+        | changeAmountEntered =
+            case inputState.changeAmountEntered of
+                Just amount ->
+                    if amount // 10 <= 0 then
+                        Nothing
+
+                    else
+                        Just (amount // 10)
+
+                Nothing ->
+                    Nothing
+    }
+
+
 pressNumeric : NumericInputButton -> InputState -> InputState
 pressNumeric numericButton inputState =
     if inputState.selectedPlayer /= Nothing then
@@ -189,6 +207,9 @@ pressNumeric numericButton inputState =
 
             MINUS ->
                 { inputState | sign = Negative }
+
+            BACK ->
+                backButtonPressed inputState
 
     else
         inputState

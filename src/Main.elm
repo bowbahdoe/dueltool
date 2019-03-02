@@ -3,7 +3,11 @@ module Main exposing (main)
 import Browser
 import Debug
 import Dict exposing (Dict)
-import Element exposing (Element, centerX, column, el, fill, height, padding, row, text, width)
+import Element exposing (Element, centerX, column, el, fill, fillPortion, height, padding, px, rgb255, row, text, width)
+import Element.Background as Background
+import Element.Border as Border
+import Element.Events exposing (onClick)
+import Element.Font as Font
 import Element.Input exposing (button)
 import Html exposing (Html)
 import InputState exposing (InputState, NumericInputButton(..))
@@ -89,7 +93,8 @@ submitLifePointChange model =
 
 
 type Msg
-    = ChangeLife { playerId : PlayerId, by : Int }
+    = NoOp
+    | ChangeLife { playerId : PlayerId, by : Int }
     | UndoLifeChange { playerId : PlayerId }
     | RedoLifeChange { playerId : PlayerId }
     | SelectPlayer { playerId : PlayerId }
@@ -102,6 +107,9 @@ type Msg
 update : Msg -> Model -> Model
 update msg model =
     case msg of
+        NoOp ->
+            model
+
         ChangeLife { playerId, by } ->
             { model | duel = updatePlayer playerId (Player.changeLifeBy by) model.duel }
 
@@ -170,7 +178,7 @@ lifeDisplay playerId model =
     case getLife playerId model.duel of
         Just lp ->
             if InputState.isSelected playerId model.inputState then
-                text (LifePoints.toString lp)
+                el [ Font.color (rgb255 230 0 0) ] (text (LifePoints.toString lp))
 
             else
                 text (LifePoints.toString lp)
@@ -179,44 +187,82 @@ lifeDisplay playerId model =
             text ""
 
 
+centeredText : String -> Element msg
+centeredText string =
+    el [ centerX ] (text string)
+
+
+inputButton : msg -> String -> Element msg
+inputButton msg label =
+    button
+        [ width <| fillPortion 1
+        , height fill
+        , Border.color (rgb255 100 200 0)
+        , Border.solid
+        , Border.width 5
+        , Border.rounded 5
+        , padding 10
+        ]
+        { onPress = Just msg, label = centeredText label }
+
+
+numberPad : Element Msg
+numberPad =
+    column [ width fill, height fill, centerX, padding 30, Element.spacing 5 ]
+        [ row [ Element.spacing 5, height fill, width fill, centerX ]
+            [ inputButton (NumericButtonPressed MINUS) "-"
+            , inputButton Reset "RESET"
+            , inputButton (NumericButtonPressed PLUS) "+"
+            ]
+        , row [ Element.spacing 5, height fill, width fill, centerX ]
+            [ inputButton (NumericButtonPressed ONE) "1"
+            , inputButton (NumericButtonPressed TWO) "2"
+            , inputButton (NumericButtonPressed THREE) "3"
+            ]
+        , row [ Element.spacing 5, height fill, width fill, centerX ]
+            [ inputButton (NumericButtonPressed FOUR) "4"
+            , inputButton (NumericButtonPressed FIVE) "5"
+            , inputButton (NumericButtonPressed SIX) "6"
+            ]
+        , row [ Element.spacing 5, height fill, width fill, centerX ]
+            [ inputButton (NumericButtonPressed SEVEN) "7"
+            , inputButton (NumericButtonPressed EIGHT) "8"
+            , inputButton (NumericButtonPressed NINE) "9"
+            ]
+        , row [ Element.spacing 5, height fill, width fill, centerX ]
+            [ inputButton (NumericButtonPressed ZERO) "0"
+            , inputButton (NumericButtonPressed DOUBLE_ZERO) "00"
+            , inputButton (NumericButtonPressed TRIPLE_ZERO) "000"
+            ]
+        , row [ Element.spacing 5, height fill, width fill, centerX ]
+            [ inputButton NoOp "COIN"
+            , inputButton SubmitLifeChange "="
+            , inputButton NoOp "DICE"
+            ]
+        ]
+
+
 view : Model -> Html Msg
 view model =
     Element.layout [] <|
-        column []
-            [ row [ fill |> width ]
+        column [ width fill, height fill ]
+            [ row [ fill |> width, padding 20 ]
                 [ column [ fill |> width, fill |> height ]
-                    [ el [ centerX ] (lifeDisplay 0 model)
-                    , lifeChangeButtons 0
+                    [ el [ centerX, onClick (SelectPlayer { playerId = 0 }) ] (lifeDisplay 0 model)
                     ]
                 , column [ fill |> width, fill |> height ]
-                    [ el [ centerX ] (lifeDisplay 1 model)
-                    , lifeChangeButtons 1
+                    [ el [ centerX, onClick (SelectPlayer { playerId = 1 }) ] (lifeDisplay 1 model)
                     ]
-                , column []
-                    [ case InputState.lifeChangeIndicated model.inputState of
-                        Just { change, forPlayer } ->
-                            text (String.fromInt change ++ " " ++ String.fromInt forPlayer)
-
-                        Nothing ->
-                            text "---"
-                    ]
-                , column []
-                    [ button [] { onPress = Just (NumericButtonPressed ONE), label = text "1" }
-                    , button [] { onPress = Just (NumericButtonPressed TWO), label = text "2" }
-                    , button [] { onPress = Just (NumericButtonPressed THREE), label = text "3" }
-                    ]
-                , column []
-                    [ button [] { onPress = Just (NumericButtonPressed FOUR), label = text "4" }
-                    ]
-                , column []
-                    [ button [] { onPress = Just (NumericButtonPressed ZERO), label = text "0" }
-                    , button [] { onPress = Just (NumericButtonPressed DOUBLE_ZERO), label = text "00" }
-                    , button [] { onPress = Just (NumericButtonPressed TRIPLE_ZERO), label = text "000" }
-                    ]
-                , button [] { onPress = Just (SelectPlayer { playerId = 1 }), label = text "select player 1" }
-                , button [] { onPress = Just (SelectPlayer { playerId = 2 }), label = text "select player 2" }
                 ]
-            , button [] { onPress = Just SubmitLifeChange, label = text "=" }
+            , el [ centerX, padding 20 ]
+                (case InputState.lifeChangeIndicated model.inputState of
+                    Just { change } ->
+                        text (String.fromInt change)
+
+                    Nothing ->
+                        text "---"
+                )
+            , numberPad
             ]
 
 
