@@ -75,7 +75,7 @@ number to it's closest multiple of 100.
 -}
 scaleUpSmallLifeChanges : Int -> Int
 scaleUpSmallLifeChanges n =
-    if n < 100 && n /= 50 then
+    if abs n < 100 && abs n /= 50 then
         n * 100
 
     else
