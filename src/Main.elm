@@ -3,72 +3,99 @@ module Main exposing (main)
 import Browser
 import Debug
 import Dict exposing (Dict)
-import Element exposing (Element, centerX, column, el, fill, padding, row, spacing, text, width)
+import Element exposing (Element, centerX, column, el, fill, height, padding, row, text, width)
 import Element.Input exposing (button)
-import History exposing (History)
 import Html exposing (Html)
+import InputState exposing (InputState, NumericInputButton(..))
 import LifePoints exposing (LifePoints)
 import Maybe
+import Player exposing (Player, PlayerId)
 
 
-type alias Player =
-    { lifeHistory : History LifePoints
-    }
+
+-- Model
+
+
+type alias Duel =
+    { players : Dict PlayerId Player }
 
 
 type alias Model =
-    { players : Dict Int Player
+    { duel : Duel
+    , inputState : InputState
     }
 
 
 init : Int -> Model
 init numPlayers =
-    { players =
-        { lifeHistory = History.new (LifePoints.fromInt 8000) }
-            |> List.repeat numPlayers
-            |> List.indexedMap Tuple.pair
-            |> Dict.fromList
+    { duel =
+        { players =
+            Player.withStartingLife 8000
+                |> List.repeat numPlayers
+                |> List.indexedMap Tuple.pair
+                |> Dict.fromList
+        }
+    , inputState = InputState.init
     }
 
 
-numberOfPlayers : Model -> Int
-numberOfPlayers { players } =
-    Dict.size players
+numberOfPlayers : Duel -> Int
+numberOfPlayers duel =
+    Dict.size duel.players
 
 
-getLife : PlayerId -> Model -> Maybe Int
-getLife playerId { players } =
-    case Dict.get playerId players of
-        Just { lifeHistory } ->
-            Just (LifePoints.value (History.current lifeHistory))
+getLife : PlayerId -> Duel -> Maybe LifePoints
+getLife playerId duel =
+    case Dict.get playerId duel.players of
+        Just player ->
+            Just (Player.life player)
 
         Nothing ->
             Nothing
 
 
-changeLifeBy : Int -> Player -> Player
-changeLifeBy lifeChangeAmount player =
-    let
-        { lifeHistory } =
-            player
-
-        curLife =
-            History.current lifeHistory
-    in
-    { player | lifeHistory = History.to (LifePoints.changeBy lifeChangeAmount curLife) lifeHistory }
-
-
-updatePlayer : Int -> (Player -> Player) -> Model -> Model
-updatePlayer playerIdber playerTransform model =
+{-| Transforms the player with the given id with the provided function.
+-}
+updatePlayer : PlayerId -> (Player -> Player) -> Duel -> Duel
+updatePlayer playerId playerTransform duel =
     let
         newPlayersDict =
-            Dict.update playerIdber (Maybe.map playerTransform) model.players
+            Dict.update playerId (Maybe.map playerTransform) duel.players
     in
-    { model | players = newPlayersDict }
+    { duel | players = newPlayersDict }
+
+
+submitLifePointChange : Model -> Model
+submitLifePointChange model =
+    let
+        { inputState, duel } =
+            model
+
+        ( newInputState, newDuel ) =
+            case InputState.lifeChangeIndicated model.inputState of
+                Just { change, forPlayer } ->
+                    ( inputState |> InputState.removePlayerSelection |> InputState.clearChangeInput
+                    , updatePlayer forPlayer (Player.changeLifeBy change) duel
+                    )
+
+                Nothing ->
+                    ( inputState, duel )
+    in
+    { model | inputState = newInputState, duel = newDuel }
+
+
+
+-- Update
 
 
 type Msg
     = ChangeLife { playerId : PlayerId, by : Int }
+    | UndoLifeChange { playerId : PlayerId }
+    | RedoLifeChange { playerId : PlayerId }
+    | SelectPlayer { playerId : PlayerId }
+    | RemovePlayerSelection
+    | SubmitLifeChange
+    | NumericButtonPressed NumericInputButton
     | Reset
 
 
@@ -76,68 +103,77 @@ update : Msg -> Model -> Model
 update msg model =
     case msg of
         ChangeLife { playerId, by } ->
-            updatePlayer playerId (changeLifeBy by) model
+            { model | duel = updatePlayer playerId (Player.changeLifeBy by) model.duel }
+
+        UndoLifeChange { playerId } ->
+            { model | duel = updatePlayer playerId Player.undoLastLifeChange model.duel }
+
+        RedoLifeChange { playerId } ->
+            { model | duel = updatePlayer playerId Player.redoLastLifeChange model.duel }
+
+        SelectPlayer { playerId } ->
+            { model | inputState = InputState.selectPlayer playerId model.inputState }
+
+        RemovePlayerSelection ->
+            { model | inputState = InputState.removePlayerSelection model.inputState }
+
+        SubmitLifeChange ->
+            submitLifePointChange model
+
+        NumericButtonPressed numericButton ->
+            { model | inputState = InputState.pressNumeric numericButton model.inputState }
 
         Reset ->
-            init (numberOfPlayers model)
+            init (numberOfPlayers model.duel)
 
 
-type alias PlayerId =
-    Int
+
+-- View
 
 
-lifeButton : PlayerId -> Element Msg
-lifeButton playerId =
+lifeChangeButtons : PlayerId -> Element Msg
+lifeChangeButtons playerId =
     let
-        changeLifeMsg : Int -> Msg
-        changeLifeMsg changeAmt =
-            ChangeLife { playerId = playerId, by = changeAmt }
+        lpChangeText : Int -> String
+        lpChangeText change =
+            if change >= 0 then
+                "+" ++ String.fromInt change
+
+            else
+                String.fromInt change
+
+        changeLifeButton : Int -> Element Msg
+        changeLifeButton changeAmt =
+            button [ padding 10, centerX ]
+                { onPress = Just (ChangeLife { playerId = playerId, by = changeAmt })
+                , label = text (lpChangeText changeAmt)
+                }
     in
     row [ width <| fill ]
         [ column [ width <| fill ]
-            [ button [ padding 10, centerX ]
-                { onPress = Just (changeLifeMsg 1000)
-                , label = text "+1000"
-                }
-            , button [ padding 10, centerX ]
-                { onPress = Just (changeLifeMsg 500)
-                , label = text "+500"
-                }
-            , button [ padding 10, centerX ]
-                { onPress = Just (changeLifeMsg 100)
-                , label = text "+100"
-                }
-            , button [ padding 10, centerX ]
-                { onPress = Just (changeLifeMsg 50)
-                , label = text "+50"
-                }
+            [ changeLifeButton 1000
+            , changeLifeButton 500
+            , changeLifeButton 100
+            , changeLifeButton 50
             ]
         , column [ width <| fill ]
-            [ button [ padding 10, centerX ]
-                { onPress = Just (changeLifeMsg -1000)
-                , label = text "-1000"
-                }
-            , button [ padding 10, centerX ]
-                { onPress = Just (changeLifeMsg -500)
-                , label = text "-500"
-                }
-            , button [ padding 10, centerX ]
-                { onPress = Just (changeLifeMsg -100)
-                , label = text "-100"
-                }
-            , button [ padding 10, centerX ]
-                { onPress = Just (changeLifeMsg -50)
-                , label = text "-50"
-                }
+            [ changeLifeButton -1000
+            , changeLifeButton -500
+            , changeLifeButton -100
+            , changeLifeButton -50
             ]
         ]
 
 
-lifeDisplay : Model -> PlayerId -> Element Msg
-lifeDisplay model playerId =
-    case getLife playerId model of
+lifeDisplay : PlayerId -> Model -> Element Msg
+lifeDisplay playerId model =
+    case getLife playerId model.duel of
         Just lp ->
-            text (String.fromInt lp)
+            if InputState.isSelected playerId model.inputState then
+                text (LifePoints.toString lp)
+
+            else
+                text (LifePoints.toString lp)
 
         Nothing ->
             text ""
@@ -146,15 +182,41 @@ lifeDisplay model playerId =
 view : Model -> Html Msg
 view model =
     Element.layout [] <|
-        row [ fill |> width, Element.explain Debug.todo ]
-            [ column [ fill |> width ]
-                [ el [ centerX ] (lifeDisplay model 0)
-                , lifeButton 0
+        column []
+            [ row [ fill |> width ]
+                [ column [ fill |> width, fill |> height ]
+                    [ el [ centerX ] (lifeDisplay 0 model)
+                    , lifeChangeButtons 0
+                    ]
+                , column [ fill |> width, fill |> height ]
+                    [ el [ centerX ] (lifeDisplay 1 model)
+                    , lifeChangeButtons 1
+                    ]
+                , column []
+                    [ case InputState.lifeChangeIndicated model.inputState of
+                        Just { change, forPlayer } ->
+                            text (String.fromInt change ++ " " ++ String.fromInt forPlayer)
+
+                        Nothing ->
+                            text "---"
+                    ]
+                , column []
+                    [ button [] { onPress = Just (NumericButtonPressed ONE), label = text "1" }
+                    , button [] { onPress = Just (NumericButtonPressed TWO), label = text "2" }
+                    , button [] { onPress = Just (NumericButtonPressed THREE), label = text "3" }
+                    ]
+                , column []
+                    [ button [] { onPress = Just (NumericButtonPressed FOUR), label = text "4" }
+                    ]
+                , column []
+                    [ button [] { onPress = Just (NumericButtonPressed ZERO), label = text "0" }
+                    , button [] { onPress = Just (NumericButtonPressed DOUBLE_ZERO), label = text "00" }
+                    , button [] { onPress = Just (NumericButtonPressed TRIPLE_ZERO), label = text "000" }
+                    ]
+                , button [] { onPress = Just (SelectPlayer { playerId = 1 }), label = text "select player 1" }
+                , button [] { onPress = Just (SelectPlayer { playerId = 2 }), label = text "select player 2" }
                 ]
-            , column [ fill |> width ]
-                [ el [ centerX ] (lifeDisplay model 1)
-                , lifeButton 1
-                ]
+            , button [] { onPress = Just SubmitLifeChange, label = text "=" }
             ]
 
 
