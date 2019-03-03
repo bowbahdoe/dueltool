@@ -2,10 +2,9 @@ module Main exposing (main)
 
 import Browser
 import Coin exposing (Coin(..))
-import Debug
 import Dict exposing (Dict)
 import Die exposing (Die)
-import Element exposing (Element, centerX, centerY, column, el, fill, fillPortion, height, padding, px, rgb255, row, text, width)
+import Element exposing (Element, alpha, centerX, centerY, column, el, fill, fillPortion, height, padding, px, rgb255, row, text, width)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Events exposing (onClick)
@@ -294,23 +293,39 @@ resultDisplay : Model -> Element Msg
 resultDisplay { result } =
     case result of
         Just res ->
-            el [ width fill, height fill, onClick DismissResultPrompt ]
+            el
+                [ centerX
+                , centerY
+                , width fill
+                , height fill
+                , Element.behindContent
+                    (el
+                        [ width fill
+                        , height fill
+                        , alpha 0.1
+                        , Background.color (rgb255 0 25 210)
+                        , onClick DismissResultPrompt
+                        ]
+                        Element.none
+                    )
+                ]
                 (el
                     [ centerX
                     , centerY
                     , width (px 300)
                     , height (px 300)
                     , Background.color (rgb255 200 300 222)
+                    , Font.size 128
                     ]
                     (case res of
                         DieRoll die ->
-                            el [ centerX, centerY ] (Element.text (String.fromInt (Die.value die)))
+                            el [ centerX, centerY ] (Element.text (Die.toString die))
 
                         CoinFlip Heads ->
-                            el [ centerX, centerY ] (Element.text "HEADS")
+                            el [ centerX, centerY ] (Element.text "H")
 
                         CoinFlip Tails ->
-                            el [ centerX, centerY ] (Element.text "TAILS")
+                            el [ centerX, centerY ] (Element.text "T")
                     )
                 )
 

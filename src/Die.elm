@@ -1,4 +1,4 @@
-module Die exposing (Die, Face(..), roll, value)
+module Die exposing (Die, Face(..), roll, toString, value)
 
 import Random
 
@@ -46,3 +46,25 @@ value (Die dieFace) =
 face : Die -> Face
 face (Die dieFace) =
     dieFace
+
+
+toString : Die -> String
+toString (Die dieFace) =
+    case dieFace of
+        One ->
+            "⚀"
+
+        Two ->
+            "⚁"
+
+        Three ->
+            "⚂"
+
+        Four ->
+            "⚃"
+
+        Five ->
+            "⚄"
+
+        Six ->
+            "⚅"
