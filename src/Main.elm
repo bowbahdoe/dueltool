@@ -1,9 +1,11 @@
 module Main exposing (main)
 
 import Browser
+import Coin exposing (Coin(..))
 import Debug
 import Dict exposing (Dict)
-import Element exposing (Element, centerX, column, el, fill, fillPortion, height, padding, px, rgb255, row, text, width)
+import Die exposing (Die)
+import Element exposing (Element, centerX, centerY, column, el, fill, fillPortion, height, padding, px, rgb255, row, text, width)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Events exposing (onClick)
@@ -11,9 +13,11 @@ import Element.Font as Font
 import Element.Input exposing (button)
 import Html exposing (Html)
 import InputState exposing (InputState, NumericInputButton(..))
+import Json.Encode exposing (Value)
 import LifePoints exposing (LifePoints)
 import Maybe
 import Player exposing (Player, PlayerId)
+import Random
 
 
 
@@ -24,9 +28,18 @@ type alias Duel =
     { players : Dict PlayerId Player }
 
 
+type DisplayableResult
+    = DieRoll Die
+    | CoinFlip Coin
+
+
 type alias Model =
     { duel : Duel
     , inputState : InputState
+
+    -- If the user has rolled a die or flipped a coin we want to show them the result of that
+    -- action.
+    , result : Maybe DisplayableResult
     }
 
 
@@ -40,6 +53,7 @@ init numPlayers =
                 |> Dict.fromList
         }
     , inputState = InputState.init
+    , result = Nothing
     }
 
 
@@ -115,54 +129,75 @@ type Msg
     | SubmitLifeChange
     | NumericButtonPressed NumericInputButton
     | Reset
+    | RequestDieRoll
+    | RecieveDieRoll Die
+    | RequestCoinFlip
+    | RecieveCoinFlip Coin
+    | DismissResultPrompt
 
 
-update : Msg -> Model -> Model
+update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         NoOp ->
-            model
+            ( model, Cmd.none )
 
         ChangeLife { playerId, by } ->
-            { model | duel = updatePlayer playerId (Player.changeLifeBy by) model.duel }
+            ( { model | duel = updatePlayer playerId (Player.changeLifeBy by) model.duel }, Cmd.none )
 
         UndoLifeChange { playerId } ->
-            { model | duel = updatePlayer playerId Player.undoLastLifeChange model.duel }
+            ( { model | duel = updatePlayer playerId Player.undoLastLifeChange model.duel }, Cmd.none )
 
         RedoLifeChange { playerId } ->
-            { model | duel = updatePlayer playerId Player.redoLastLifeChange model.duel }
+            ( { model | duel = updatePlayer playerId Player.redoLastLifeChange model.duel }, Cmd.none )
 
         SelectPlayer { playerId } ->
-            { model | inputState = InputState.selectPlayer playerId model.inputState }
+            ( { model | inputState = InputState.selectPlayer playerId model.inputState }, Cmd.none )
 
         RemovePlayerSelection ->
-            { model | inputState = InputState.removePlayerSelection model.inputState }
+            ( { model | inputState = InputState.removePlayerSelection model.inputState }, Cmd.none )
 
         SubmitLifeChange ->
-            submitLifePointChange model
+            ( submitLifePointChange model, Cmd.none )
 
         NumericButtonPressed numericButton ->
-            { model | inputState = InputState.pressNumeric numericButton model.inputState }
+            ( { model | inputState = InputState.pressNumeric numericButton model.inputState }, Cmd.none )
 
         Reset ->
-            init (numberOfPlayers model.duel)
+            ( init (numberOfPlayers model.duel), Cmd.none )
+
+        RequestDieRoll ->
+            ( model, Random.generate RecieveDieRoll Die.roll )
+
+        RecieveDieRoll die ->
+            ( { model | result = Just (DieRoll die) }, Cmd.none )
+
+        RequestCoinFlip ->
+            ( model, Random.generate RecieveCoinFlip Coin.flip )
+
+        RecieveCoinFlip coin ->
+            ( { model | result = Just (CoinFlip coin) }, Cmd.none )
+
+        DismissResultPrompt ->
+            ( { model | result = Nothing }, Cmd.none )
 
 
 
 -- View
 
 
+lpChangeText : Int -> String
+lpChangeText change =
+    if change >= 0 then
+        "+" ++ String.fromInt change
+
+    else
+        String.fromInt change
+
+
 lifeChangeButtons : PlayerId -> Element Msg
 lifeChangeButtons playerId =
     let
-        lpChangeText : Int -> String
-        lpChangeText change =
-            if change >= 0 then
-                "+" ++ String.fromInt change
-
-            else
-                String.fromInt change
-
         changeLifeButton : Int -> Element Msg
         changeLifeButton changeAmt =
             button [ padding 10, centerX ]
@@ -248,16 +283,44 @@ numberPad =
             , inputButton (NumericButtonPressed TRIPLE_ZERO) "000"
             ]
         , row [ Element.spacing 5, height fill, width fill, centerX ]
-            [ inputButton NoOp "COIN"
+            [ inputButton RequestCoinFlip "COIN"
             , inputButton SubmitLifeChange "="
-            , inputButton NoOp "DICE"
+            , inputButton RequestDieRoll "DICE"
             ]
         ]
 
 
+resultDisplay : Model -> Element Msg
+resultDisplay { result } =
+    case result of
+        Just res ->
+            el [ width fill, height fill, onClick DismissResultPrompt ]
+                (el
+                    [ centerX
+                    , centerY
+                    , width (px 300)
+                    , height (px 300)
+                    , Background.color (rgb255 200 300 222)
+                    ]
+                    (case res of
+                        DieRoll die ->
+                            el [ centerX, centerY ] (Element.text (String.fromInt (Die.value die)))
+
+                        CoinFlip Heads ->
+                            el [ centerX, centerY ] (Element.text "HEADS")
+
+                        CoinFlip Tails ->
+                            el [ centerX, centerY ] (Element.text "TAILS")
+                    )
+                )
+
+        Nothing ->
+            Element.none
+
+
 view : Model -> Html Msg
 view model =
-    Element.layout [] <|
+    Element.layout [ Element.inFront (resultDisplay model) ] <|
         column [ width fill, height fill ]
             [ row [ fill |> width, padding 20 ]
                 [ column [ fill |> width, fill |> height ]
@@ -270,7 +333,7 @@ view model =
             , el [ centerX, padding 20 ]
                 (case InputState.lifeChangeIndicated model.inputState of
                     Just { change } ->
-                        text (String.fromInt change)
+                        text (lpChangeText change)
 
                     Nothing ->
                         text "---"
@@ -279,5 +342,11 @@ view model =
             ]
 
 
+main : Program Value Model Msg
 main =
-    Browser.sandbox { init = init 2, view = view, update = update }
+    Browser.element
+        { init = \_ -> ( init 2, Cmd.none )
+        , view = view
+        , update = update
+        , subscriptions = \_ -> Sub.none
+        }
