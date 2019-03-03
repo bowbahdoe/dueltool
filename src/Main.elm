@@ -1,10 +1,11 @@
 module Main exposing (main)
 
 import Browser
+import Browser.Events
 import Coin exposing (Coin(..))
 import Dict exposing (Dict)
 import Die exposing (Die)
-import Element exposing (Element, alpha, centerX, centerY, column, el, fill, fillPortion, height, padding, px, rgb255, row, text, width)
+import Element exposing (Element, alpha, centerX, centerY, column, el, fill, fillPortion, height, padding, paddingXY, px, rgb255, row, text, width)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Events exposing (onClick)
@@ -123,8 +124,7 @@ type Msg
     | ChangeLife { playerId : PlayerId, by : Int }
     | UndoLifeChange { playerId : PlayerId }
     | RedoLifeChange { playerId : PlayerId }
-    | SelectPlayer { playerId : PlayerId }
-    | RemovePlayerSelection
+    | ToggleSelection { playerId : PlayerId }
     | SubmitLifeChange
     | NumericButtonPressed NumericInputButton
     | Reset
@@ -133,6 +133,7 @@ type Msg
     | RequestCoinFlip
     | RecieveCoinFlip Coin
     | DismissResultPrompt
+    | ResizeWindow { width : Int, height : Int }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -150,11 +151,17 @@ update msg model =
         RedoLifeChange { playerId } ->
             ( { model | duel = updatePlayer playerId Player.redoLastLifeChange model.duel }, Cmd.none )
 
-        SelectPlayer { playerId } ->
-            ( { model | inputState = InputState.selectPlayer playerId model.inputState }, Cmd.none )
+        ToggleSelection { playerId } ->
+            ( { model
+                | inputState =
+                    if InputState.isSelected playerId model.inputState then
+                        InputState.removePlayerSelection model.inputState
 
-        RemovePlayerSelection ->
-            ( { model | inputState = InputState.removePlayerSelection model.inputState }, Cmd.none )
+                    else
+                        InputState.selectPlayer playerId model.inputState
+              }
+            , Cmd.none
+            )
 
         SubmitLifeChange ->
             ( submitLifePointChange model, Cmd.none )
@@ -179,6 +186,9 @@ update msg model =
 
         DismissResultPrompt ->
             ( { model | result = Nothing }, Cmd.none )
+
+        ResizeWindow { width, height } ->
+            ( model, Cmd.none )
 
 
 
@@ -224,11 +234,22 @@ lifeDisplay : PlayerId -> Model -> Element Msg
 lifeDisplay playerId model =
     case getLife playerId model.duel of
         Just lp ->
-            if InputState.isSelected playerId model.inputState then
-                el [ Font.color (rgb255 230 0 0) ] (text (LifePoints.toString lp))
+            let
+                color =
+                    if InputState.isSelected playerId model.inputState then
+                        rgb255 230 0 0
 
-            else
-                text (LifePoints.toString lp)
+                    else
+                        rgb255 0 0 0
+            in
+            el
+                [ paddingXY 30 10
+                , Border.width 5
+                , Border.rounded 3
+                , Border.color color
+                , Font.color color
+                ]
+                (text (LifePoints.toString lp))
 
         Nothing ->
             text ""
@@ -333,33 +354,45 @@ resultDisplay { result } =
             Element.none
 
 
-view : Model -> Html Msg
+view : Model -> Browser.Document Msg
 view model =
-    Element.layout [ Element.inFront (resultDisplay model) ] <|
-        column [ width fill, height fill ]
-            [ row [ fill |> width, padding 20 ]
-                [ column [ fill |> width, fill |> height ]
-                    [ el [ centerX, onClick (SelectPlayer { playerId = 0 }) ] (lifeDisplay 0 model)
-                    ]
-                , column [ fill |> width, fill |> height ]
-                    [ el [ centerX, onClick (SelectPlayer { playerId = 1 }) ] (lifeDisplay 1 model)
-                    ]
+    { title = "YuGiOh Duel Calculator"
+    , body =
+        [ Element.layout [ Element.inFront (resultDisplay model) ] <|
+            column
+                [ width fill
+                , height fill
                 ]
-            , el [ centerX, padding 20 ]
-                (case InputState.lifeChangeIndicated model.inputState of
-                    Just { change } ->
-                        text (lpChangeText change)
+                [ row [ fill |> width, padding 20 ]
+                    [ column [ fill |> width, fill |> height ]
+                        [ el [ centerX, onClick (ToggleSelection { playerId = 0 }) ] (lifeDisplay 0 model)
+                        ]
+                    , column [ fill |> width, fill |> height ]
+                        [ el [ centerX, onClick (ToggleSelection { playerId = 1 }) ] (lifeDisplay 1 model)
+                        ]
+                    ]
+                , el [ centerX, padding 20 ]
+                    (case InputState.lifeChangeIndicated model.inputState of
+                        Just { change } ->
+                            text (lpChangeText change)
 
-                    Nothing ->
-                        text "---"
-                )
-            , numberPad
-            ]
+                        Nothing ->
+                            text "---"
+                    )
+                , numberPad
+                ]
+        ]
+    }
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Browser.Events.onResize (\w h -> ResizeWindow { width = w, height = h })
 
 
 main : Program Value Model Msg
 main =
-    Browser.element
+    Browser.document
         { init = \_ -> ( init 2, Cmd.none )
         , view = view
         , update = update

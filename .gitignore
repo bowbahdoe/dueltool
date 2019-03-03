@@ -1,2 +1,6 @@
 *.idea/
 elm-stuff/
+node_modules/
+dist/
+.DS_Store
+.cache/
