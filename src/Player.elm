@@ -1,46 +1,33 @@
-module Player exposing (Player, PlayerId, changeLifeBy, life, redoLastLifeChange, undoLastLifeChange, withStartingLife)
+module Player exposing (Player, PlayerId(..), changeLifeBy, life, withStartingLife)
 
-import History exposing (History)
 import LifePoints exposing (LifePoints)
 
 
 type Player
     = Player
-        { lifeHistory : History LifePoints
+        { lifePoints : LifePoints
         }
 
 
-type alias PlayerId =
-    Int
+type PlayerId
+    = Player1
+    | Player2
 
 
 withStartingLife : Int -> Player
 withStartingLife lp =
-    Player { lifeHistory = History.new (LifePoints.fromInt lp) }
-
-
-undoLastLifeChange : Player -> Player
-undoLastLifeChange (Player player) =
-    Player { player | lifeHistory = History.back player.lifeHistory }
-
-
-redoLastLifeChange : Player -> Player
-redoLastLifeChange (Player player) =
-    Player { player | lifeHistory = History.forward player.lifeHistory }
+    Player { lifePoints = LifePoints.fromInt lp }
 
 
 changeLifeBy : Int -> Player -> Player
 changeLifeBy lifeChangeAmount (Player player) =
     let
-        { lifeHistory } =
+        { lifePoints } =
             player
-
-        curLife =
-            History.current lifeHistory
     in
-    Player { player | lifeHistory = History.to (LifePoints.changeBy lifeChangeAmount curLife) lifeHistory }
+    Player { player | lifePoints = LifePoints.changeBy lifeChangeAmount lifePoints }
 
 
 life : Player -> LifePoints
 life (Player player) =
-    History.current player.lifeHistory
+    player.lifePoints

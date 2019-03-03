@@ -3,7 +3,6 @@ module Main exposing (main)
 import Browser
 import Browser.Events
 import Coin exposing (Coin(..))
-import Dict exposing (Dict)
 import Die exposing (Die)
 import Element exposing (Element, alpha, centerX, centerY, column, el, fill, fillPortion, height, padding, paddingXY, px, rgb255, row, text, width)
 import Element.Background as Background
@@ -11,12 +10,12 @@ import Element.Border as Border
 import Element.Events exposing (onClick)
 import Element.Font as Font
 import Element.Input exposing (button)
-import Html exposing (Html)
+import History exposing (History)
 import InputState exposing (InputState, NumericInputButton(..))
 import Json.Encode exposing (Value)
 import LifePoints exposing (LifePoints)
 import Maybe
-import Player exposing (Player, PlayerId)
+import Player exposing (Player, PlayerId(..))
 import Random
 
 
@@ -24,8 +23,13 @@ import Random
 -- Model
 
 
+evolve : (a -> a) -> History a -> History a
+evolve f history =
+    History.to (f (History.current history)) history
+
+
 type alias Duel =
-    { players : Dict PlayerId Player }
+    ( Player, Player )
 
 
 type DisplayableResult
@@ -34,7 +38,7 @@ type DisplayableResult
 
 
 type alias Model =
-    { duel : Duel
+    { duelHistory : History Duel
     , inputState : InputState
 
     -- If the user has rolled a die or flipped a coin we want to show them the result of that
@@ -45,13 +49,9 @@ type alias Model =
 
 init : Int -> Model
 init numPlayers =
-    { duel =
-        { players =
-            Player.withStartingLife 8000
-                |> List.repeat numPlayers
-                |> List.indexedMap Tuple.pair
-                |> Dict.fromList
-        }
+    { duelHistory =
+        History.new
+            ( Player.withStartingLife 8000, Player.withStartingLife 8000 )
     , inputState = InputState.init
     , result = Nothing
     }
@@ -59,28 +59,29 @@ init numPlayers =
 
 numberOfPlayers : Duel -> Int
 numberOfPlayers duel =
-    Dict.size duel.players
+    2
 
 
-getLife : PlayerId -> Duel -> Maybe LifePoints
-getLife playerId duel =
-    case Dict.get playerId duel.players of
-        Just player ->
-            Just (Player.life player)
+getLife : PlayerId -> Duel -> LifePoints
+getLife playerId ( p1, p2 ) =
+    case playerId of
+        Player1 ->
+            Player.life p1
 
-        Nothing ->
-            Nothing
+        Player2 ->
+            Player.life p2
 
 
 {-| Transforms the player with the given id with the provided function.
 -}
 updatePlayer : PlayerId -> (Player -> Player) -> Duel -> Duel
-updatePlayer playerId playerTransform duel =
-    let
-        newPlayersDict =
-            Dict.update playerId (Maybe.map playerTransform) duel.players
-    in
-    { duel | players = newPlayersDict }
+updatePlayer playerId playerTransform ( p1, p2 ) =
+    case playerId of
+        Player1 ->
+            ( playerTransform p1, p2 )
+
+        Player2 ->
+            ( p1, playerTransform p2 )
 
 
 {-| In YuGiOh life point changes that aren't 50 + some multiple of 100 are
@@ -99,8 +100,11 @@ scaleUpSmallLifeChanges n =
 submitLifePointChange : Model -> Model
 submitLifePointChange model =
     let
-        { inputState, duel } =
+        { inputState, duelHistory } =
             model
+
+        duel =
+            History.current duelHistory
 
         ( newInputState, newDuel ) =
             case InputState.lifeChangeIndicated model.inputState of
@@ -112,7 +116,7 @@ submitLifePointChange model =
                 Nothing ->
                     ( inputState, duel )
     in
-    { model | inputState = newInputState, duel = newDuel }
+    { model | inputState = newInputState, duelHistory = History.to newDuel duelHistory }
 
 
 
@@ -122,8 +126,6 @@ submitLifePointChange model =
 type Msg
     = NoOp
     | ChangeLife { playerId : PlayerId, by : Int }
-    | UndoLifeChange { playerId : PlayerId }
-    | RedoLifeChange { playerId : PlayerId }
     | ToggleSelection { playerId : PlayerId }
     | SubmitLifeChange
     | NumericButtonPressed NumericInputButton
@@ -143,13 +145,13 @@ update msg model =
             ( model, Cmd.none )
 
         ChangeLife { playerId, by } ->
-            ( { model | duel = updatePlayer playerId (Player.changeLifeBy by) model.duel }, Cmd.none )
-
-        UndoLifeChange { playerId } ->
-            ( { model | duel = updatePlayer playerId Player.undoLastLifeChange model.duel }, Cmd.none )
-
-        RedoLifeChange { playerId } ->
-            ( { model | duel = updatePlayer playerId Player.redoLastLifeChange model.duel }, Cmd.none )
+            ( { model
+                | duelHistory =
+                    model.duelHistory
+                        |> evolve (updatePlayer playerId (Player.changeLifeBy by))
+              }
+            , Cmd.none
+            )
 
         ToggleSelection { playerId } ->
             ( { model
@@ -170,7 +172,7 @@ update msg model =
             ( { model | inputState = InputState.pressNumeric numericButton model.inputState }, Cmd.none )
 
         Reset ->
-            ( init (numberOfPlayers model.duel), Cmd.none )
+            ( init (numberOfPlayers (History.current model.duelHistory)), Cmd.none )
 
         RequestDieRoll ->
             ( model, Random.generate RecieveDieRoll Die.roll )
@@ -232,27 +234,26 @@ lifeChangeButtons playerId =
 
 lifeDisplay : PlayerId -> Model -> Element Msg
 lifeDisplay playerId model =
-    case getLife playerId model.duel of
-        Just lp ->
-            let
-                color =
-                    if InputState.isSelected playerId model.inputState then
-                        rgb255 230 0 0
+    let
+        lp =
+            getLife playerId (History.current model.duelHistory)
+    in
+    let
+        color =
+            if InputState.isSelected playerId model.inputState then
+                rgb255 230 0 0
 
-                    else
-                        rgb255 0 0 0
-            in
-            el
-                [ paddingXY 30 10
-                , Border.width 5
-                , Border.rounded 3
-                , Border.color color
-                , Font.color color
-                ]
-                (text (LifePoints.toString lp))
-
-        Nothing ->
-            text ""
+            else
+                rgb255 0 0 0
+    in
+    el
+        [ paddingXY 30 10
+        , Border.width 5
+        , Border.rounded 3
+        , Border.color color
+        , Font.color color
+        ]
+        (text (LifePoints.toString lp))
 
 
 centeredText : String -> Element msg
@@ -365,10 +366,12 @@ view model =
                 ]
                 [ row [ fill |> width, padding 20 ]
                     [ column [ fill |> width, fill |> height ]
-                        [ el [ centerX, onClick (ToggleSelection { playerId = 0 }) ] (lifeDisplay 0 model)
+                        [ el [ centerX, onClick (ToggleSelection { playerId = Player1 }) ]
+                            (lifeDisplay Player1 model)
                         ]
                     , column [ fill |> width, fill |> height ]
-                        [ el [ centerX, onClick (ToggleSelection { playerId = 1 }) ] (lifeDisplay 1 model)
+                        [ el [ centerX, onClick (ToggleSelection { playerId = Player2 }) ]
+                            (lifeDisplay Player2 model)
                         ]
                     ]
                 , el [ centerX, padding 20 ]
