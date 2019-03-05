@@ -4,6 +4,7 @@ import Browser
 import Browser.Events
 import Coin exposing (Coin(..))
 import Die exposing (Die)
+import Duel exposing (Duel, getLife, updatePlayer)
 import Element exposing (Element, alpha, centerX, centerY, column, el, fill, fillPortion, height, padding, paddingXY, px, rgb255, row, text, width)
 import Element.Background as Background
 import Element.Border as Border
@@ -12,10 +13,12 @@ import Element.Font as Font
 import Element.Input exposing (button)
 import History exposing (History)
 import InputState exposing (InputState, NumericInputButton(..))
+import Json.Decode as Decode
 import Json.Encode exposing (Value)
 import LifePoints exposing (LifePoints)
 import Maybe
 import Player exposing (Player, PlayerId(..))
+import Ports
 import Random
 
 
@@ -26,10 +29,6 @@ import Random
 evolve : (a -> a) -> History a -> History a
 evolve f history =
     History.to (f (History.current history)) history
-
-
-type alias Duel =
-    ( Player, Player )
 
 
 type DisplayableResult
@@ -46,42 +45,39 @@ type alias Model =
     , result : Maybe DisplayableResult
     }
 
+init : Value -> ( Model, Cmd msg )
+init flags =
+    case Decode.decodeValue (Decode.field "storedDuel" (Decode.nullable Duel.decode)) flags of
+        Ok (Just duel) ->
+            ( initialModel { previousDuel = Just duel }
+            , Ports.info "Loaded in previous duel from flags."
+            )
 
-init : Int -> Model
-init numPlayers =
+        Ok Nothing ->
+            ( initialModel { previousDuel = Nothing }
+            , Ports.info "There was no previous duel. Starting from scratch."
+            )
+
+        Err _ ->
+            ( initialModel { previousDuel = Nothing }
+            , Ports.error "The previous duel was unable to be decoded. Starting from scratch."
+            )
+
+
+initialModel : { a | previousDuel : Maybe Duel } -> Model
+initialModel { previousDuel } =
     { duelHistory =
         History.new
-            ( Player.withStartingLife 8000, Player.withStartingLife 8000 )
+            (case previousDuel of
+                Just duel ->
+                    duel
+
+                Nothing ->
+                    Duel.default
+            )
     , inputState = InputState.init
     , result = Nothing
     }
-
-
-numberOfPlayers : Duel -> Int
-numberOfPlayers duel =
-    2
-
-
-getLife : PlayerId -> Duel -> LifePoints
-getLife playerId ( p1, p2 ) =
-    case playerId of
-        Player1 ->
-            Player.life p1
-
-        Player2 ->
-            Player.life p2
-
-
-{-| Transforms the player with the given id with the provided function.
--}
-updatePlayer : PlayerId -> (Player -> Player) -> Duel -> Duel
-updatePlayer playerId playerTransform ( p1, p2 ) =
-    case playerId of
-        Player1 ->
-            ( playerTransform p1, p2 )
-
-        Player2 ->
-            ( p1, playerTransform p2 )
 
 
 {-| In YuGiOh life point changes that aren't 50 + some multiple of 100 are
@@ -138,7 +134,11 @@ type Msg
     | ResizeWindow { width : Int, height : Int }
 
 
-update : Msg -> Model -> ( Model, Cmd Msg )
+type alias UpdateFn =
+    Msg -> Model -> ( Model, Cmd Msg )
+
+
+update : UpdateFn
 update msg model =
     case msg of
         NoOp ->
@@ -172,7 +172,7 @@ update msg model =
             ( { model | inputState = InputState.pressNumeric numericButton model.inputState }, Cmd.none )
 
         Reset ->
-            ( init (numberOfPlayers (History.current model.duelHistory)), Cmd.none )
+            ( initialModel { previousDuel = Nothing }, Cmd.none )
 
         RequestDieRoll ->
             ( model, Random.generate RecieveDieRoll Die.roll )
@@ -192,6 +192,21 @@ update msg model =
         ResizeWindow { width, height } ->
             ( model, Cmd.none )
 
+{-| Wraps an update function and stores the state of the duel if it has changed. -}
+storeDuelState : UpdateFn -> UpdateFn
+storeDuelState f =
+    let
+        newUpdateFn msg model =
+            let (newModel, cmd) = f msg model
+                newCmd =
+                    if (History.current newModel.duelHistory) /= History.current model.duelHistory then
+                        Ports.storeDuelState (Duel.encode (History.current newModel.duelHistory))
+                    else
+                        Cmd.none
+            in
+                (newModel, Cmd.batch [ cmd, newCmd])
+    in
+        newUpdateFn
 
 
 -- View
@@ -204,32 +219,6 @@ lpChangeText change =
 
     else
         String.fromInt change
-
-
-lifeChangeButtons : PlayerId -> Element Msg
-lifeChangeButtons playerId =
-    let
-        changeLifeButton : Int -> Element Msg
-        changeLifeButton changeAmt =
-            button [ padding 10, centerX ]
-                { onPress = Just (ChangeLife { playerId = playerId, by = changeAmt })
-                , label = text (lpChangeText changeAmt)
-                }
-    in
-    row [ width <| fill ]
-        [ column [ width <| fill ]
-            [ changeLifeButton 1000
-            , changeLifeButton 500
-            , changeLifeButton 100
-            , changeLifeButton 50
-            ]
-        , column [ width <| fill ]
-            [ changeLifeButton -1000
-            , changeLifeButton -500
-            , changeLifeButton -100
-            , changeLifeButton -50
-            ]
-        ]
 
 
 lifeDisplay : PlayerId -> Model -> Element Msg
@@ -396,8 +385,8 @@ subscriptions model =
 main : Program Value Model Msg
 main =
     Browser.document
-        { init = \_ -> ( init 2, Cmd.none )
+        { init = init
         , view = view
-        , update = update
+        , update = storeDuelState update
         , subscriptions = \_ -> Sub.none
         }

@@ -1,5 +1,7 @@
-module LifePoints exposing (LifePoints(..), changeBy, fromInt, toString, value)
+module LifePoints exposing (LifePoints(..), changeBy, fromInt, toString, value, encode, decode)
 
+import Json.Decode as Decode exposing (Decoder)
+import Json.Encode exposing (Value)
 import Number.Bounded exposing (Bounded)
 
 
@@ -47,3 +49,12 @@ value of the LifePoints.
 toString : LifePoints -> String
 toString =
     value >> String.fromInt
+
+
+encode : LifePoints -> Value
+encode (LifePoints lp) =
+    Json.Encode.int (Number.Bounded.value lp)
+
+decode : Decoder LifePoints
+decode =
+    Decode.map fromInt Decode.int
